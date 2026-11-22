@@ -55,6 +55,10 @@ def _heartbeat_age() -> float | None:
 
 
 def _kill(pid: int) -> None:
+    if sys.platform != "win32":
+        from .linux.system import kill
+        kill(pid)
+        return
     try:
         subprocess.run(["taskkill", "/F", "/PID", str(pid)],
                        capture_output=True, timeout=10, creationflags=_NO_WINDOW)
@@ -142,6 +146,13 @@ def _watchdog_cmd(pid: int) -> list[str]:
 def spawn(app_pid: int) -> None:
     """Launch a detached watchdog watching ``app_pid``."""
     if sys.platform != "win32":
+        from .linux.autostart import supervised
+        if supervised():
+            return        # the systemd user service restarts the app itself
+        try:
+            subprocess.Popen(_watchdog_cmd(app_pid), start_new_session=True, **_DETACH)
+        except Exception as e:
+            log.warning("could not spawn watchdog: %s", e)
         return
     try:
         subprocess.Popen(_watchdog_cmd(app_pid), creationflags=_NO_WINDOW, **_DETACH)
@@ -150,6 +161,9 @@ def spawn(app_pid: int) -> None:
 
 
 def _pid_alive(pid: int) -> bool:
+    if sys.platform != "win32":
+        from .linux.system import pid_alive
+        return pid_alive(pid)
     try:
         out = subprocess.run(["tasklist", "/FI", f"PID eq {pid}", "/NH"],
                              capture_output=True, text=True, timeout=10, creationflags=_NO_WINDOW)
@@ -182,8 +196,6 @@ def _crash_looping() -> bool:
 def run(app_pid: int) -> None:
     """Watch ``app_pid``; when it exits, restart the app unless it stopped
     cleanly or is crash-looping."""
-    if sys.platform != "win32":
-        return
     time.sleep(10)   # grace period so a just-started app isn't judged as hung
     while _pid_alive(app_pid):
         age = _heartbeat_age()
@@ -200,6 +212,9 @@ def run(app_pid: int) -> None:
         return
     log.warning("app died unexpectedly (pid %s); restarting", app_pid)
     try:
+        if sys.platform != "win32":
+            subprocess.Popen(_app_cmd(), start_new_session=True, **_DETACH)
+            return
         subprocess.Popen(_app_cmd(), creationflags=_NO_WINDOW, **_DETACH)
     except Exception as e:
         log.warning("restart failed: %s", e)

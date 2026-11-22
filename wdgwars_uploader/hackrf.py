@@ -21,7 +21,9 @@ The radio side is ported from the HackRF driver in Wardrive Go and Mayhem Mobile
 A PortaPack running Mayhem shows up as a USB serial console, not as a HackRF.
 :func:`portapack_to_hackrf` types ``hackrf`` into that console, as Mayhem Mobile
 does, and the board reboots into HackRF mode a few seconds later. The HackRF
-firmware asks Windows for WinUSB itself, so no driver install is needed.
+firmware asks Windows for WinUSB itself, so no driver install is needed. On Linux
+the HackRF has no kernel driver; the udev rules from install.sh let the app open
+it, and the samples reach the decoder through :mod:`wdgwars_uploader.linux.adsb`.
 """
 
 from __future__ import annotations
@@ -94,6 +96,16 @@ def board_name(board_id: int) -> str:
 
 def find_usb() -> tuple[int, int] | None:
     """(vid, pid) of a HackRF on USB, or None. Enumeration only: nothing is opened."""
+    import sys
+    if sys.platform != "win32":
+        try:
+            from .linux.system import usb_devices
+            for d in usb_devices():
+                if d["vid"] == VID and d["pid"] in PIDS:
+                    return VID, d["pid"]
+            return None
+        except OSError:
+            pass
     try:
         import usb1
         with usb1.USBContext() as ctx:

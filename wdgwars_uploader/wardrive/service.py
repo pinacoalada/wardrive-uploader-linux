@@ -26,6 +26,7 @@ import json
 import logging
 import math
 import platform
+import sys
 import threading
 import time
 from pathlib import Path
@@ -109,8 +110,9 @@ def csv_row(r: dict[str, Any]) -> str:
 
 
 def csv_header(label: str) -> str:
-    return (f"WigleWifi-1.6,appRelease={__version__},model=Wardrive Uploader,release=Windows {platform.release()},"
-            f"device={device_label(label)},display=,board=,brand=Windows\n{CSV_COLUMNS}\n")
+    osname = "Windows" if sys.platform == "win32" else "Linux"
+    return (f"WigleWifi-1.6,appRelease={__version__},model=Wardrive Uploader,release={osname} {platform.release()},"
+            f"device={device_label(label)},display=,board=,brand={osname}\n{CSV_COLUMNS}\n")
 
 
 MAX_FILE_BYTES = 9_500_000   # per-file cap for WiGLE and WDGWars, before and after compression

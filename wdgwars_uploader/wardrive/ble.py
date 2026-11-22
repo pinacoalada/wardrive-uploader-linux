@@ -1,4 +1,5 @@
-"""Bluetooth Low Energy scanning (bleak, Windows advertisement watcher).
+"""Bluetooth Low Energy scanning (bleak: the Windows advertisement watcher, or
+BlueZ on Linux, where every adapter scans at once).
 
 Windows runs one Bluetooth radio at a time, so a plugged-in dongle is used when
 Windows makes it the active adapter. Scanning restarts by itself if Bluetooth is
@@ -9,6 +10,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import sys
 import threading
 import time
 from typing import Any, Callable
@@ -87,10 +89,40 @@ class BleScanner:
                 self.state, self.detail = "paused", "a board is sending its SD card"
                 await asyncio.sleep(0.5)
                 continue
-            async with BleakScanner(on_adv, scanning_mode="active"):
-                self.state, self.detail = "scanning", ""
-                while not self._stop.is_set() and not scans_paused():
-                    await asyncio.sleep(0.5)
+            if sys.platform == "win32":
+                async with BleakScanner(on_adv, scanning_mode="active"):
+                    self.state, self.detail = "scanning", ""
+                    while not self._stop.is_set() and not scans_paused():
+                        await asyncio.sleep(0.5)
+            else:
+                await self._scan_bluez(BleakScanner, on_adv)
+
+    async def _scan_bluez(self, BleakScanner, on_adv) -> None:  # noqa: N803
+        """BlueZ drives every Bluetooth adapter at once (unlike Windows), so each one
+        scans. DuplicateData keeps a device that sits still reporting, which the
+        freshness window needs."""
+        import contextlib
+        from pathlib import Path
+        adapters = sorted(p.name for p in Path("/sys/class/bluetooth").glob("hci[0-9]*")) or [None]
+        async with contextlib.AsyncExitStack() as stack:
+            running = []
+            last_err: Exception | None = None
+            for hci in adapters:
+                kw = {"adapter": hci} if hci else {}
+                try:
+                    await stack.enter_async_context(BleakScanner(
+                        on_adv, scanning_mode="active", bluez={"filters": {"DuplicateData": True}}, **kw))
+                    running.append(hci or "default")
+                except Exception as e:  # noqa: BLE001 - adapter powered off or blocked by rfkill
+                    last_err = e
+                    log.info("BLE scan on %s unavailable: %s", hci or "default adapter", e)
+            if not running:
+                raise last_err or RuntimeError("no Bluetooth adapter")
+            self.state, self.detail = "scanning", ", ".join(running)
+            while not self._stop.is_set() and not scans_paused():
+                if sorted(p.name for p in Path("/sys/class/bluetooth").glob("hci[0-9]*")) != [a for a in adapters if a]:
+                    break                      # an adapter came or went: start over with the new set
+                await asyncio.sleep(0.5)
 
     def fresh(self, max_age: float = 6.0) -> list[dict[str, Any]]:
         """Devices heard within ``max_age`` seconds; older ones are dropped."""

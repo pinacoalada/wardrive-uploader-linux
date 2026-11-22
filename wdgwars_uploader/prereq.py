@@ -26,7 +26,8 @@ def check_python_deps() -> dict:
     missing = [m for m in required if importlib.util.find_spec(m) is None]
     if missing:
         return _check("Python packages", False, "missing: " + ", ".join(missing),
-                      fix="pip install -r requirements.txt")
+                      fix="pip install -r requirements.txt" if sys.platform == "win32"
+                      else "Run ./install.sh from the app folder.")
     return _check("Python packages", True, "all installed")
 
 
@@ -132,6 +133,8 @@ def portapack_state(port: str) -> dict:
 
 
 def check_all(devices, cfg: dict) -> list[dict]:
+    if sys.platform != "win32":
+        return _check_all_linux(devices, cfg)
     from . import adsb
     source, port = adsb.resolve_source(cfg, devices)
     checks = [check_python_deps()]
@@ -146,4 +149,25 @@ def check_all(devices, cfg: dict) -> list[dict]:
     else:
         checks.append(check_dump1090(cfg.get("dump1090_exe", "")))
         checks.append(rtlsdr_driver_state(bool(devices and devices.rtlsdr_present)))
+    return checks
+
+
+def _check_all_linux(devices, cfg: dict) -> list[dict]:
+    """Same report on Linux: no WinUSB step exists; permissions and the packaged
+    decoder take its place."""
+    from . import adsb, hackrf
+    from .linux import prereq as lp
+    source, port = adsb.resolve_source(cfg, devices)
+    checks = [check_python_deps()]
+    if source == "mayhem":
+        checks.append(portapack_state(port))
+    elif source == "hackrf":
+        checks.append(lp.decoder(cfg))
+        checks.append(lp.usb_radio("HackRF access", hackrf.VID, hackrf.PIDS) or hackrf_state(port))
+    else:
+        checks.append(lp.decoder(cfg))
+        checks.append(lp.rtlsdr(bool(devices and devices.rtlsdr_present)))
+    for extra in (lp.serial_access(devices.serial_ports if devices else []), lp.brltty()):
+        if extra:
+            checks.append(extra)
     return checks

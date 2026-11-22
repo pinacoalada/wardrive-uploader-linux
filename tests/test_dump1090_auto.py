@@ -1,4 +1,5 @@
 """dump1090 downloads on its own when an SDR that needs it is plugged in and none is on disk."""
+import sys
 import threading
 import time
 import unittest
@@ -14,6 +15,7 @@ def _wait_done():
         time.sleep(0.01)
 
 
+@unittest.skipUnless(sys.platform == "win32", "Linux takes the decoder from the package manager")
 class AutoInstall(unittest.TestCase):
     def setUp(self):
         adsb._install.update(state="", msg="", at=0.0, tries=0)

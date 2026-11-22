@@ -840,7 +840,7 @@ select:focus,input:focus{outline:none;border-color:var(--cyan);box-shadow:0 0 8p
         <section class="sgroup">
           <div class="sgh"><span class="ic">⚙</span><div><b>General</b><span class="sub2">Startup, names and feeds</span></div></div>
           <div class="toggles">
-            <label class="toggle"><input type="checkbox" id="f-boot"> ⏻ Start with Windows</label>
+            <label class="toggle"><input type="checkbox" id="f-boot"> ⏻ <span id="f-boot-l">Start with Windows</span></label>
           </div>
           <div class="field">
             <label for="f-adsburl">ADS-B feed URL</label>
@@ -1129,7 +1129,7 @@ function render(s){
   setDot("#d-sdr", sdr.present ? (sdr.driver_ok===false ? "warn" : "on")
                                : (adsbActive==="mayhem"||adsbActive==="hackrf" ? "" : "off"));
   $("#d-sdr-t").textContent = sdr.present
-      ? (sdr.driver_ok===false ? (sdr.label+" — needs WinUSB driver") : sdr.label)
+      ? (sdr.driver_ok===false ? (sdr.label+(s.platform==='linux'?" — needs setup (see Setup checks)":" — needs WinUSB driver")) : sdr.label)
       // Not having an RTL-SDR is not a fault when the PortaPack is the source.
       : (adsbActive==="mayhem" ? "not detected — using PortaPack"
          : adsbActive==="hackrf" ? "not detected — using HackRF" : "not detected");
@@ -1243,6 +1243,7 @@ function render(s){
   renderWardrive(s);
   fillWardriveSettings(s);
   renderUpdate(s.update||{});
+  if(s.platform==='linux'){ const bl=$("#f-boot-l"); if(bl&&bl.textContent!=='Start at login') bl.textContent='Start at login'; }
   renderEvents(s.events);
   // settings (only fill when not being edited)
   const c=s.config||{};
@@ -1609,7 +1610,7 @@ function addDevRow(d){
   row.innerHTML=`<label class="switch" style="margin:0" title="enabled"><input type="checkbox" class="d-en" ${d.enabled!==false?'checked':''}></label>
     <select class="d-proto"><option value="meshcore"${(d.protocol||'meshcore')==='meshcore'?' selected':''}>MeshCore</option><option value="meshtastic"${d.protocol==='meshtastic'?' selected':''}>Meshtastic</option></select>
     <select class="d-transport" title="Connection"><option value="serial"${d.transport!=='ble'?' selected':''}>USB serial</option><option value="ble"${d.transport==='ble'?' selected':''}>BLE</option></select>
-    <select class="d-port" title="COM port">${portOptions(d.port||'auto')}</select>
+    <select class="d-port" title="Serial port">${portOptions(d.port||'auto')}</select>
     <input type="text" class="d-ble" title="BLE address or device UUID" placeholder="BLE address or device UUID" value="${escHtml(d.ble_address||'')}">
     <button class="btn ghost d-rm" type="button" title="remove">✕</button>`;
   const conn=()=>{const ble=row.querySelector('.d-transport').value==='ble';
@@ -2237,7 +2238,7 @@ function renderUpdate(u){
     if(u.phase==='downloading') bar.innerHTML=`<span>⬆ Downloading <b>${escHtml(u.latest)}</b>… ${u.progress||0}%</span>
       <div class="meter"><div style="width:${u.progress||0}%;background:linear-gradient(90deg,#8a7a00,var(--wd))"></div></div>`;
     else if(u.phase==='approve') bar.innerHTML=`<span>⬆ <b>${escHtml(u.latest)}</b> is downloaded and verified. Approve the Windows prompt to install it.</span>`;
-    else if(u.phase==='installing') bar.innerHTML=`<span>⬆ Installing <b>${escHtml(u.latest)}</b>. The app closes now; the installer shows its progress and reopens the app when it is done.</span>`;
+    else if(u.phase==='installing') bar.innerHTML=`<span>⬆ Installing <b>${escHtml(u.latest)}</b>. ${u.method==='git'?'The app restarts on its own when it is done.':'The app closes now; the installer shows its progress and reopens the app when it is done.'}</span>`;
     else bar.innerHTML=`<span>⬆ <b>Wardrive Uploader ${escHtml(u.latest)}</b> is ready <span class="muted">(you have ${escHtml(u.current)})</span></span>
       <span class="spacer"></span>
       ${u.page?`<a href="${escHtml(u.page)}" target="_blank" rel="noopener">What's new ↗</a>`:''}
@@ -2364,7 +2365,8 @@ function renderHardware(s){
     const isOff=off.has(a.id);
     if(a.monitor){
       const live=a.state==='live';
-      const bad=['needs WinUSB','needs replug','stopped','unplugged'].includes(a.state);
+      const bad=['needs WinUSB','needs permission','no monitor mode','needs replug','stopped','unplugged'].includes(a.state);
+      if(a.state==='no driver loaded'){ tiles.push({id:a.id,n:cleanName(a.name),d:'Wi-Fi monitor · no kernel driver',dot:'warn',tip:a.detail||'',off:false,show:true,nosw:true}); continue; }
       if(a.state==='no desktop driver yet'){ tiles.push({id:a.id,n:cleanName(a.name),d:'Wi-Fi monitor · driver coming',dot:'warn',tip:a.detail||'',off:false,show:true,nosw:true}); continue; }
       tiles.push({id:a.id,n:cleanName(a.name),d:isOff?'Wi-Fi monitor · off':(live?`Wi-Fi monitor · ch ${a.channel}`:`Wi-Fi monitor · ${a.state}`),
         dot:isOff?'':(live?'on':(bad?'off':'warn')),tip:a.detail||'',off:isOff,show:a.state!=='unplugged'||isOff});
@@ -2387,7 +2389,7 @@ function renderHardware(s){
     let d;
     if(isOff) d='location · off';
     else if(phoneOn) d=`connected · ±${Math.round(x.fix.acc)} m${inUse?' · in use':''}`;
-    else if(f) d=`${x.id==='gps:windows'&&x.detail?x.detail:'location'} · ±${Math.round(f.acc)} m${f.sats?` · ${f.sats} sats`:''}${inUse?' · in use':''}`;
+    else if(f) d=`${['gps:windows','gps:gpsd','gps:geoclue'].includes(x.id)&&x.detail?x.detail:'location'} · ±${Math.round(f.acc)} m${f.sats?` · ${f.sats} sats`:''}${inUse?' · in use':''}`;
     else if(x.id==='gps:phone') d='click to connect your phone';
     else d='location · '+(x.state==='fix'?'no fix':x.state);
     tiles.push({id:x.id,n:x.name,d,
@@ -2402,7 +2404,7 @@ function renderHardware(s){
     $("#hw-dyn").innerHTML=shown.map(x=>`<div class="dev${x.off?' isoff':''}${x.id==='gps:phone'?' clickable':''}" data-tile="${escHtml(x.id)}" title="${escHtml(x.id==='gps:phone'?'Click for the QR code that connects your phone':x.tip)}"><div class="dot ${x.dot}"></div><div><div class="n">${escHtml(x.n)}</div><div class="d">${escHtml(x.d)}</div></div>`
       +sw(x)+'</div>').join('');
   }
-  const stuck=(w.adapters||[]).find(a=>a.monitor&&!off.has(a.id)&&(a.state==='needs replug'||a.state==='needs WinUSB'));
+  const stuck=(w.adapters||[]).find(a=>a.monitor&&!off.has(a.id)&&['needs replug','needs WinUSB','needs permission'].includes(a.state));
   $("#hw-note").textContent=w.error||(stuck?`${cleanName(stuck.name)}: ${stuck.detail}`:'')||w.reason||'';
 }
 const BLE_MAKERS={76:'Apple',6:'Microsoft',117:'Samsung',224:'Google',89:'Nordic',135:'Garmin',741:'Espressif',369:'Amazon',911:'Xiaomi',301:'Sony',196:'LG',343:'Bose',1447:'Tile',2470:'Meta'};

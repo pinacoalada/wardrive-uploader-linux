@@ -18,7 +18,22 @@ from ctypes import wintypes
 from pathlib import Path
 from typing import Any, Callable
 
-import pystray
+import os
+
+
+def _headless() -> bool:
+    """Linux with no desktop session (or WARDRIVE_HEADLESS=1): no tray, dashboard only."""
+    if os.environ.get("WARDRIVE_HEADLESS") == "1":
+        return True
+    return sys.platform != "win32" and not (os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY"))
+
+
+pystray = None  # type: ignore[assignment]
+if not _headless():
+    try:
+        import pystray  # type: ignore[no-redef]
+    except Exception:  # pragma: no cover - no tray host / AppIndicator libs: the app runs headless
+        pystray = None
 from PIL import Image
 
 log = logging.getLogger(__name__)
@@ -63,9 +78,14 @@ def tray_image(state: str) -> Image.Image | None:
     return img
 
 
-class TrayIcon(pystray.Icon):
+class _NoTray:
+    pass
+
+
+class TrayIcon(pystray.Icon if pystray is not None else _NoTray):  # type: ignore[misc]
     """pystray icon that hands right-clicks to a custom popup. If the popup
-    cannot open, the native menu is used."""
+    cannot open, the native menu is used (always, on Linux: the AppIndicator
+    host draws the menu)."""
 
     def __init__(self, *args: Any, on_right_click: Callable[[], bool] | None = None, **kwargs: Any) -> None:
         self._on_right_click = on_right_click

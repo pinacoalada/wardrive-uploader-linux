@@ -2,6 +2,7 @@
 import socket
 import struct
 import time
+import sys
 import unittest
 from unittest import mock
 
@@ -54,6 +55,7 @@ class SourceOrder(unittest.TestCase):
         adsb.resolve_source(cfg, det(hrf=True))
         self.assertEqual(adsb.resolve_source(cfg, d), ("hackrf", "COM9"))
 
+    @unittest.skipUnless(sys.platform == "win32", "gvanem dump1090 arguments; Linux: tests/test_linux_platform.py")
     def test_hackrf_launches_dump1090_on_the_bridge(self):
         cfg = {"adsb_source": "auto", "adsb_enabled": True, "dump1090_autostart": True}
         with mock.patch.object(hackrf, "find_usb", return_value=(0x1D50, 0x6089)), \

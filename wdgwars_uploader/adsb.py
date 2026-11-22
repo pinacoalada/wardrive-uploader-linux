@@ -40,6 +40,7 @@ from .config import config_dir
 
 log = logging.getLogger("wdgwars.adsb")
 _NO_WINDOW = 0x08000000 if sys.platform == "win32" else 0
+_LINUX = sys.platform.startswith("linux")
 
 # All-in-one Windows dump1090 (librtlsdr statically linked; serves tar1090 JSON).
 DUMP1090_ZIP_URL = "https://github.com/gvanem/Dump1090/releases/download/v1.0.0/Dump1090-for-Windows-1.0.0-x64.zip"
@@ -84,6 +85,8 @@ def install_status() -> dict[str, Any]:
 def start_install(force: bool = False) -> bool:
     """Download the decoder in the background unless one is already on its way or
     the retry window has not passed. Returns True when a download started."""
+    if _LINUX:
+        return False     # Linux takes the decoder from the package manager (install.sh)
     with _install_lock:
         if _install["state"] == "downloading":
             return False
@@ -128,6 +131,9 @@ def tools_dir() -> Path:
 def find_dump1090(configured_exe: str = "") -> str | None:
     """Configured path, then the app's tools dir, then a PyInstaller bundle."""
     import shutil
+    if _LINUX:
+        from .linux import adsb as _lx
+        return _lx.find_decoder(configured_exe)
     if configured_exe and Path(configured_exe).exists():
         return configured_exe
     search = [tools_dir()]
@@ -175,6 +181,9 @@ def install_dump1090(progress: Callable[[str], None] | None = None) -> str:
 
 
 def is_running() -> bool:
+    if _LINUX:
+        from .linux import adsb as _lx
+        return _lx.running()
     return _proc is not None and _proc.poll() is None
 
 
@@ -221,6 +230,10 @@ def stop_dump1090() -> None:
     ensure_decoder, which only clears strays when nothing is serving.
     """
     global _proc
+    if _LINUX:
+        from .linux import adsb as _lx
+        _lx.stop()
+        return
     if is_running():
         try:
             _proc.terminate()
@@ -510,6 +523,13 @@ def ensure_decoder(cfg: dict[str, Any], driver_ok: bool | None = None,
 
     if not cfg.get("dump1090_autostart", True):
         return is_running()
+    if _LINUX:
+        # Packaged decoder (service or launched here), see linux/adsb.py.
+        from .linux import adsb as _lx
+        if source == "hackrf" and port and not hackrf.find_usb():
+            _switch_portapack(port)   # comes back as a HackRF a few seconds later
+            return False
+        return _lx.ensure(cfg, source, sdr_present, receiver_home(cfg))
     if source == "hackrf":
         if port and not hackrf.find_usb():
             _switch_portapack(port)   # comes back as a HackRF a few seconds later
@@ -575,4 +595,9 @@ def collect(cfg: dict[str, Any]) -> dict[str, Any] | None:
         obj = from_file(file)
         if obj is not None:
             return obj
+    if _LINUX:
+        from .linux import adsb as _lx
+        path = _lx.collect_path()
+        if path:
+            return from_file(path)
     return None

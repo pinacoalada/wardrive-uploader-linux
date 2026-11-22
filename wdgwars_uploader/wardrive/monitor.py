@@ -9,6 +9,7 @@ to handshake and PMKID capture.
 from __future__ import annotations
 
 import logging
+import sys
 import threading
 import time
 from typing import Any, Callable
@@ -18,6 +19,14 @@ from .wifi import auth_mode
 from . import ar9271, mt7612u
 
 log = logging.getLogger("wdgwars.monitor")
+
+_LINUX = sys.platform.startswith("linux")
+
+
+def _kernel_owned(key: str) -> bool:
+    from ..linux.system import usb_kernel_driver
+    return bool(usb_kernel_driver(key))
+
 
 # (vid, pid) -> (driver class, chipset name)
 SUPPORTED = {vp: (mt7612u.Mt7612u, "MediaTek MT7612U") for vp in mt7612u.VID_PIDS}
@@ -59,8 +68,16 @@ class MonitorManager:
         self._thread: threading.Thread | None = None
         self.error = ""
         self.off: set[str] = set()        # USB port keys switched off
+        # Linux: adapters with a kernel driver go through the kernel's own monitor
+        # mode (nl80211); the libusb drivers here only take unbound adapters.
+        self.native = None
+        if _LINUX:
+            from ..linux.monitor import NativeMonitor
+            self.native = NativeMonitor(self._frame, off=lambda: self.off)
 
     def start(self) -> None:
+        if self.native is not None:
+            self.native.start()
         if self._thread and self._thread.is_alive():
             return
         self._stop.clear()
@@ -71,6 +88,8 @@ class MonitorManager:
         """Stop every adapter and wait for its driver to cancel its USB transfers
         and close, so nothing is left in flight when the app exits."""
         self._stop.set()
+        if self.native is not None:
+            self.native.stop(wait)
         adapters = list(self.adapters.values())
         for a in adapters:
             if a.driver:
@@ -96,11 +115,16 @@ class MonitorManager:
                         if vp not in SUPPORTED and vp not in KNOWN:
                             continue
                         key = f"{dev.getBusNumber()}-{'.'.join(map(str, dev.getPortNumberList() or []))}"
+                        if _LINUX and _kernel_owned(key):
+                            continue          # the kernel driver has it: NativeMonitor runs it
                         present.add(key)
                         if vp not in SUPPORTED:
                             with self._lock:
                                 a = self.adapters.setdefault(key, _Adapter(key, KNOWN[vp]))
-                                a.state, a.detail = "no desktop driver yet", "Wardrive Go supports this chip; its desktop driver is on the way"
+                                if _LINUX:
+                                    a.state, a.detail = "no driver loaded", "install this chipset's kernel driver (e.g. a DKMS package) and replug it"
+                                else:
+                                    a.state, a.detail = "no desktop driver yet", "Wardrive Go supports this chip; its desktop driver is on the way"
                             continue
                         with self._lock:
                             a = self.adapters.get(key)
@@ -115,7 +139,7 @@ class MonitorManager:
                                 continue
                             if a and a.thread and a.thread.is_alive():
                                 continue
-                            if a and a.state == "needs WinUSB" and time.monotonic() - getattr(a, "tried", 0) < 30:
+                            if a and a.state in ("needs WinUSB", "needs permission") and time.monotonic() - getattr(a, "tried", 0) < 30:
                                 continue
                             if a and a.state == "needs replug":
                                 continue      # retried once it has been unplugged
@@ -159,7 +183,10 @@ class MonitorManager:
                     drv.open()
                 except usb1.USBError as e:
                     if e.value in (usb1.ERROR_ACCESS, usb1.ERROR_NOT_SUPPORTED, usb1.ERROR_NOT_FOUND):
-                        a.state, a.detail = "needs WinUSB", "switch this adapter to the WinUSB driver to use monitor mode"
+                        if _LINUX:
+                            a.state, a.detail = "needs permission", "install the udev rules (sudo ./install.sh) and replug the adapter"
+                        else:
+                            a.state, a.detail = "needs WinUSB", "switch this adapter to the WinUSB driver to use monitor mode"
                         return
                     raise
                 a.state = "loading firmware"
@@ -259,4 +286,9 @@ class MonitorManager:
 
     def status(self) -> list[dict[str, Any]]:
         with self._lock:
-            return [a.status() for a in self.adapters.values()]
+            out = [a.status() for a in self.adapters.values()]
+        if self.native is not None:
+            nat = self.native.status()
+            keys = {x["id"] for x in nat}
+            out = [x for x in out if x["id"] not in keys] + nat
+        return out

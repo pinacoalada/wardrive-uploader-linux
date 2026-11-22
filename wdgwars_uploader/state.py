@@ -9,6 +9,7 @@ import copy
 import json
 import os
 import tempfile
+import sys
 import threading
 import time
 from typing import Any
@@ -474,6 +475,7 @@ class LiveState:
             mc_live = [n for n in self._mesh_live if n.get("network") == "meshcore"]
             return {
                 "now": time.time(),
+                "platform": "windows" if sys.platform == "win32" else "linux",
                 "uptime": time.time() - self.started,
                 "devices": self.devices,
                 "pending": {"aircraft": len(self._aircraft_acc), "mesh": len(self._mesh_acc),

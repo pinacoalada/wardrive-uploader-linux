@@ -1,6 +1,7 @@
 """Configuration storage.
 
-Config lives in ``%APPDATA%\\WardriveUploader\\config.json``. The API keys are the
+Config lives in ``%APPDATA%\\WardriveUploader\\config.json`` on Windows and in
+``~/.config/wardrive-uploader/config.json`` on Linux. The API keys are the
 only secrets; they are stored in plain text in the roaming profile, at the same trust
 level as the rest of the account, and is never returned by the dashboard API.
 """
@@ -11,6 +12,7 @@ import json
 import os
 import re
 import socket
+import sys
 import tempfile
 import threading
 from pathlib import Path
@@ -103,6 +105,11 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "last_upload_ts": 0,
 }
 
+if sys.platform.startswith("linux"):
+    # Linux reads a packaged decoder's aircraft.json (a running dump1090-fa/readsb
+    # service, or one the app starts itself): no fixed URL, no Windows arguments.
+    DEFAULT_CONFIG.update({"adsb_json_url": "", "dump1090_args": ""})
+
 
 def mesh_devices(values: Any, *, transport: str = "serial", ble_address: str = "auto") -> list[dict[str, Any]]:
     """Add per-device transport defaults without changing existing radio settings."""
@@ -160,8 +167,14 @@ def config_dir() -> Path:
     global _DIR, MOVE_ERROR
     if _DIR is not None:
         return _DIR
-    base = Path(os.environ.get("APPDATA") or str(Path.home()))
-    d, old = base / "WardriveUploader", base / "WDGWarsUploader"
+    if sys.platform == "win32":
+        base = Path(os.environ.get("APPDATA") or str(Path.home()))
+        d, old = base / "WardriveUploader", base / "WDGWarsUploader"
+    else:
+        # XDG: ~/.config/wardrive-uploader. The earlier Debian port kept its data
+        # in ~/.config/wdgwars-uploader; that folder is moved over the first time.
+        base = Path(os.environ.get("XDG_CONFIG_HOME") or str(Path.home() / ".config"))
+        d, old = base / "wardrive-uploader", base / "wdgwars-uploader"
     if old.is_dir() and not d.exists():
         try:
             old.rename(d)
@@ -175,6 +188,11 @@ def config_dir() -> Path:
                 MOVE_ERROR = f"kept using {old}: could not move it ({e})"
                 d = old
     d.mkdir(parents=True, exist_ok=True)
+    if sys.platform != "win32":
+        try:
+            os.chmod(d, 0o700)     # API keys live here: owner only
+        except OSError:
+            pass
     _DIR = d
     return d
 

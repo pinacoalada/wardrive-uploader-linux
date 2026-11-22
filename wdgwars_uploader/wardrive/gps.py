@@ -4,7 +4,8 @@ Sources, all optional and used together:
 
 * a USB or Bluetooth GPS on a COM port, read as NMEA;
 * a phone streaming NMEA over the network (TCP or UDP, port 10110 by default);
-* Windows location: built-in GPS, or Wi-Fi and cell positioning.
+* Windows location: built-in GPS, or Wi-Fi and cell positioning; on Linux,
+  gpsd and GeoClue (see :mod:`wdgwars_uploader.linux.gps`).
 
 The most accurate fresh fix wins, and every row carries that fix's accuracy.
 Windows' IP-address fallback is not used: it is usually the provider's city
@@ -19,6 +20,7 @@ import logging
 import math
 import re
 import socket
+import sys
 import threading
 import time
 from dataclasses import dataclass, field
@@ -385,6 +387,10 @@ def gps_ports(exclude: set[str]) -> list[str]:
         text = " ".join(str(x or "") for x in (p.description, p.manufacturer, p.product))
         if getattr(p, "vid", None) == _UBLOX_VID or _GPS_WORDS.search(text):
             out.append(p.device)
+    if sys.platform != "win32":
+        # A Bluetooth GPS bound with `rfcomm bind` (pyserial does not list these).
+        import glob
+        out += [d for d in sorted(glob.glob("/dev/rfcomm[0-9]*")) if d not in exclude and d not in out]
     return out
 
 
@@ -398,7 +404,11 @@ class GpsHub:
         """Every location source there is; the ones in ``off`` are listed but not run."""
         self.stop()
         srcs: list[_Source] = [SerialGps(p) for p in gps_ports(exclude)]
-        srcs += [NetworkGps(net_port), WindowsGps()]
+        if sys.platform == "win32":
+            srcs += [NetworkGps(net_port), WindowsGps()]
+        else:
+            from ..linux.gps import GeoClueGps, GpsdGps
+            srcs += [NetworkGps(net_port)] + ([GpsdGps()] if GpsdGps.installed() else []) + [GeoClueGps()]
         for s in srcs:
             if s.id in off:
                 s.state = "off"
@@ -423,6 +433,9 @@ class GpsHub:
 
 def lan_addresses() -> list[str]:
     """This PC's LAN IPv4 addresses, for the phone setup hint."""
+    if sys.platform != "win32":
+        from ..linux.system import lan_addresses as _linux_lan
+        return _linux_lan()
     out = []
     try:
         for info in socket.getaddrinfo(socket.gethostname(), None, socket.AF_INET):

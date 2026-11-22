@@ -68,11 +68,20 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--window", metavar="URL", help="open the dashboard as a native window (internal)")
     ap.add_argument("--watchdog", type=int, metavar="PID", help=argparse.SUPPRESS)
     ap.add_argument("--boot", action="store_true",
-                    help="launched at Windows logon: start in the tray without opening the dashboard")
+                    help="launched at logon: start in the tray without opening the dashboard")
+    ap.add_argument("--headless", action="store_true",
+                    help="no tray icon; everything runs from the web dashboard (Linux)")
     ap.add_argument("-v", "--verbose", action="store_true")
     args = ap.parse_args(argv)
 
     setup_logging(logging.DEBUG if args.verbose else logging.INFO)
+    if sys.platform != "win32":
+        if args.headless:
+            import os
+            os.environ["WARDRIVE_HEADLESS"] = "1"
+        # Serial ports open exclusively, as COM ports do on Windows.
+        from .linux.system import exclusive_serial
+        exclusive_serial()
 
     if args.watchdog:
         from .watchdog import run as watchdog_run

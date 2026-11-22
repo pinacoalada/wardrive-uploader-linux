@@ -4,8 +4,8 @@
   pyserial, which enumerates COM ports with their VID/PID - reliable and
   dependency-light.
 * An RTL-SDR is *not* a serial device, so it is detected by querying Windows PnP
-  through PowerShell for the Realtek DVB VID/PID. This reads the same data as
-  ``Get-PnpDevice`` and needs no native driver access.
+  through PowerShell for the Realtek DVB VID/PID (on Linux, from sysfs). This
+  reads the same data as ``Get-PnpDevice`` and needs no native driver access.
 
 Two ADS-B radios are possible: an RTL-SDR (decoded on the PC by dump1090) and a
 PortaPack/HackRF running Mayhem (decoded on-device and read back over its CDC
@@ -168,10 +168,23 @@ def _rtlsdr_label(reported: str) -> str:
     return reported
 
 
+def _rtlsdr_present_linux() -> tuple[bool, str]:
+    """Detect an RTL-SDR from sysfs. The product string comes straight from the
+    dongle's USB descriptor, so the label rules above apply as on Windows."""
+    from .linux.system import usb_devices
+    for d in usb_devices():
+        if (d["vid"], d["pid"]) in RTLSDR_IDS:
+            return True, _rtlsdr_label(d["product"] or "RTL2832U")
+    return False, ""
+
+
 def _rtlsdr_present() -> tuple[bool, str]:
-    """Detect an RTL-SDR via Windows PnP. Returns (present, label)."""
+    """Detect an RTL-SDR via Windows PnP (sysfs on Linux). Returns (present, label)."""
     if sys.platform != "win32":
-        return False, ""
+        try:
+            return _rtlsdr_present_linux()
+        except OSError:
+            return False, ""
     # Build a regex of VID_xxxx&PID_xxxx patterns for the known IDs.
     patterns = "|".join(f"VID_{v:04X}&PID_{p:04X}" for v, p in RTLSDR_IDS)
     # Prefer the bus-reported product string (from the dongle) over FriendlyName

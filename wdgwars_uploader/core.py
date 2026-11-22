@@ -206,7 +206,7 @@ class UploaderCore:
         try:
             self.state.prereqs = {"checks": prereq.check_all(det, self.cfg.as_dict())}
             for c in self.state.prereqs["checks"]:
-                if c["name"] == "RTL-SDR driver":
+                if c["name"] in ("RTL-SDR driver", "RTL-SDR access"):
                     self.state.update_device("rtlsdr", driver_ok=c["ok"])
         except Exception:
             log.exception("prereq check failed")

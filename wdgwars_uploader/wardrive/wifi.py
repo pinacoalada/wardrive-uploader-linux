@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import ctypes
 import logging
+import sys
 import time
 from ctypes import wintypes as W
 from typing import Any
@@ -212,3 +213,10 @@ class WifiScanner:
             adapters.append({"name": it.desc, "state": _IF_STATES.get(it.state, "?"), "networks": seen})
         self.adapters = adapters
         return list(best.values())
+
+
+if sys.platform.startswith("linux"):
+    def WifiScanner():  # noqa: F811,N802 - same call as the Windows class
+        """nl80211 drop-in with the same trigger()/read()/adapters/off surface."""
+        from ..linux.wifi import WifiScanner as _LinuxWifiScanner
+        return _LinuxWifiScanner()

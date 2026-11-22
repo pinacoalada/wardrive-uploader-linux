@@ -1,5 +1,7 @@
 # Wardrive Uploader
 
+> **Linux fork.** This is a native Ubuntu/Linux port. Install with `./install.sh` and see **[README-LINUX.md](README-LINUX.md)** for what changed. The description below is upstream's and applies as-is, with Linux equivalents for the Windows parts (WinUSB/Zadig, Windows location, the MSI).
+
 Windows tray app that turns a PC into a wardriving rig. It collects Wi-Fi, Bluetooth, aircraft and LoRa mesh nodes from whatever is plugged in and uploads them to [WiGLE](https://wigle.net), [WDGWars](https://wdgwars.pl) and [Wardrift](https://wardrift.net), with a local dashboard, map, leaderboards and handshake cracking through [wpa-sec](https://wpa-sec.stanev.org).
 
 ![Dashboard](docs/top.png)

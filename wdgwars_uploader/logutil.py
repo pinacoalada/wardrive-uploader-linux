@@ -1,4 +1,4 @@
-"""Logging setup: rotating file in %APPDATA% plus an in-memory ring buffer the
+"""Logging setup: rotating file in the data folder (%APPDATA% or ~/.config) plus an in-memory ring buffer the
 tray/UI can show without opening the file."""
 
 from __future__ import annotations
@@ -6,6 +6,7 @@ from __future__ import annotations
 import collections
 import faulthandler
 import logging
+import os
 import sys
 import threading
 from logging.handlers import RotatingFileHandler
@@ -38,6 +39,12 @@ def setup_logging(level: int = logging.INFO) -> logging.Logger:
     rh = _RingHandler()
     rh.setFormatter(fmt)
     logger.addHandler(rh)
+
+    if sys.platform != "win32" and sys.stderr is not None and (sys.stderr.isatty() or "INVOCATION_ID" in os.environ):
+        # Linux: a terminal or the systemd journal (journalctl --user -u wardrive-uploader) gets the log too.
+        sh = logging.StreamHandler(sys.stderr)
+        sh.setFormatter(logging.Formatter("[%(levelname)s] %(name)s: %(message)s"))
+        logger.addHandler(sh)
 
     logger.propagate = False
     _install_crash_handlers(logger)

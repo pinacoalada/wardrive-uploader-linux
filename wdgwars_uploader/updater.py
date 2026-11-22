@@ -207,3 +207,8 @@ class Updater:
             self.on_event("Another install was running, so the update waited; try Install update again")
         else:
             self.on_event(f"Update did not install (installer code {code}); still on {__version__}")
+
+
+if sys.platform.startswith("linux"):
+    # A git checkout updates with a fast-forward pull; see linux/updater.py.
+    from .linux.updater import Updater  # noqa: E402,F401,F811

@@ -20,7 +20,6 @@ import time
 import webbrowser
 from pathlib import Path
 
-import pystray
 from PIL import Image, ImageDraw
 
 from . import APP_NAME, __version__, adsb, autostart, hackrf, mayhem, traymenu, updater, watchdog
@@ -34,6 +33,8 @@ from .state import LiveState
 
 log = logging.getLogger("wdgwars.app")
 _NO_WINDOW = 0x08000000 if sys.platform == "win32" else 0
+_WIN = sys.platform == "win32"
+pystray = traymenu.pystray     # None when headless (Linux with no desktop session)
 
 
 def _make_icon(active: bool = True, busy: bool = False) -> Image.Image:
@@ -58,7 +59,7 @@ class UploaderApp:
         self.server = DashboardServer(self)
         self.updater = updater.Updater(on_quit=self.quit, on_event=self.state.event)
         self.state.update_status = self.updater.status
-        self._icon: pystray.Icon | None = None
+        self._icon = None
         self._stop = threading.Event()
 
     # -- lifecycle ---------------------------------------------------------
@@ -94,9 +95,36 @@ class UploaderApp:
             "site": lambda: webbrowser.open("https://rocketgod.dev"),
             "quit": self.quit,
         })
-        self._icon = traymenu.TrayIcon(APP_NAME, self._tray_icon(True, False), APP_NAME,
-                                       menu=self._menu(), on_right_click=self._popup.show)
-        self._icon.run()  # blocks main thread until stop()
+        if not _WIN:
+            self._linux_signals()
+        if pystray is not None:
+            try:
+                self._icon = traymenu.TrayIcon(APP_NAME, self._tray_icon(True, False), APP_NAME,
+                                               menu=self._menu(), on_right_click=self._popup.show)
+                self._icon.run()  # blocks main thread until stop()
+                return
+            except Exception:
+                if _WIN:
+                    raise
+                log.exception("tray unavailable; continuing headless")
+                self._icon = None
+        # Linux without a tray: everything (Quit included) is on the dashboard.
+        log.info("running headless (no system tray); dashboard at %s", url or self.server.url)
+        self._stop.wait()
+
+    def _linux_signals(self) -> None:
+        """A logout, `systemctl --user stop` or Ctrl-C must still save the un-uploaded
+        queue and hand monitor-mode adapters back, exactly like Quit."""
+        import signal
+
+        def on_signal(*_a) -> None:
+            threading.Thread(target=self.quit, name="wdgw-quit", daemon=True).start()
+
+        for sig in (signal.SIGTERM, signal.SIGINT, signal.SIGHUP):
+            try:
+                signal.signal(sig, on_signal)
+            except (ValueError, OSError):
+                pass
 
     def _status_loop(self) -> None:
         while not self._stop.is_set():
@@ -106,7 +134,11 @@ class UploaderApp:
             if self._icon:
                 det = self.core.last_detect
                 active = bool(det and (det.adsb_radio_present or det.mesh_present)) and bool(self.cfg.get("api_key"))
-                self._icon.icon = self._tray_icon(active, self.state.upload_in_progress)
+                look = (active, bool(self.state.upload_in_progress))
+                # Re-set only on a change: the Linux tray rewrites the icon file on every set.
+                if _WIN or look != getattr(self, "_look", None):
+                    self._look = look
+                    self._icon.icon = self._tray_icon(*look)
                 self._icon.title = f"{APP_NAME} — {self._status_text()}"
             self._stop.wait(4.0)
 
@@ -200,7 +232,7 @@ class UploaderApp:
         bits.append(f"queued {p['aircraft']}+{p['mesh']}")
         return " · ".join(bits)
 
-    def _menu(self) -> pystray.Menu:
+    def _menu(self):
         def interval_item(h: int):
             label = f"{h} hour" if h == 1 else f"{h} hours"
             return pystray.MenuItem(label, lambda i, it: self.set_interval(h),
@@ -211,8 +243,10 @@ class UploaderApp:
             pystray.Menu.SEPARATOR,
             pystray.MenuItem("Open dashboard", lambda i, it: self.open_dashboard(), default=True),
             pystray.MenuItem("Upload now", lambda i, it: self.trigger_upload()),
+            *([] if _WIN else [pystray.MenuItem("Live map", lambda i, it: self.server.url and webbrowser.open(
+                self.server.url.rstrip("/") + "/map"))]),
             pystray.MenuItem("Interval", pystray.Menu(*[interval_item(h) for h in INTERVAL_CHOICES_HOURS])),
-            pystray.MenuItem("Start on Windows boot", lambda i, it: self._toggle_boot(),
+            pystray.MenuItem("Start on Windows boot" if _WIN else "Start at login", lambda i, it: self._toggle_boot(),
                              checked=lambda it: autostart.is_enabled()),
             pystray.MenuItem("Open log / config folder", lambda i, it: self._open_folder()),
             pystray.Menu.SEPARATOR,
@@ -312,7 +346,11 @@ class UploaderApp:
 
     def _open_folder(self) -> None:
         try:
-            os.startfile(str(config_dir()))  # type: ignore[attr-defined]
+            if _WIN:
+                os.startfile(str(config_dir()))  # type: ignore[attr-defined]
+            else:
+                from .linux.system import open_path
+                open_path(str(config_dir()))
         except Exception:
             log.exception("could not open config folder")
 
@@ -348,14 +386,20 @@ def open_window(url: str) -> None:
 _NO_WINDOW = 0x08000000 if sys.platform == "win32" else 0
 
 
-def _kill_stale_app_instances() -> None:
+def _kill_stale_app_instances(force: bool = False) -> None:
     """Frozen build only: forcibly end any OTHER Wardrive Uploader *app* instances,
     leaving watchdogs and this process alone. A serial deadlock can leave a hung
     zombie that still holds the COM port and the dashboard socket; a restart must
     clear it before reopening them, or the new instance comes up crippled - no
     dashboard, no mesh.
     """
-    if sys.platform != "win32" or not getattr(sys, "frozen", False):
+    if not _WIN:
+        # Linux: only a copy that holds the lock but no longer answers is ended.
+        if force:
+            from .linux.system import kill_stale_instances
+            kill_stale_instances()
+        return
+    if not getattr(sys, "frozen", False):
         return
     me = os.getpid()
     ps = ("Get-CimInstance Win32_Process -Filter \"Name='WardriveUploader.exe' OR Name='WDGWarsUploader.exe'\" | "
@@ -423,7 +467,7 @@ def main(open_dash: bool = True, takeover: bool = False) -> None:
                     return
                 if _pid_alive(pid):
                     log.info("pid %s holds the lock but is not answering; replacing it", pid)
-                    _kill_stale_app_instances()
+                    _kill_stale_app_instances(force=True)
                     time.sleep(1.5)
         except Exception:
             pass
@@ -451,7 +495,8 @@ def _dashboard_up() -> bool:
 
 def _pid_alive(pid: int) -> bool:
     if sys.platform != "win32":
-        return False
+        from .linux.system import pid_alive
+        return pid_alive(pid)
     try:
         out = subprocess.run(["tasklist", "/FI", f"PID eq {pid}", "/NH"],
                              capture_output=True, text=True, timeout=10, creationflags=_NO_WINDOW)

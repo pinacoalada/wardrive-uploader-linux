@@ -1,6 +1,6 @@
 """Wardrive Uploader.
 
-Windows tray application that collects Wi-Fi and Bluetooth (every adapter,
+Tray application (Windows, and Linux in this fork) that collects Wi-Fi and Bluetooth (every adapter,
 including monitor-mode USB adapters), ADS-B aircraft from an RTL-SDR or a
 PortaPack/Mayhem, and nodes from MeshCore and Meshtastic radios, and uploads
 them to WiGLE, WDGWars and Wardrift.

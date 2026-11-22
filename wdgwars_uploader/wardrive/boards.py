@@ -23,6 +23,7 @@ import collections
 import io
 import logging
 import queue
+import sys
 import threading
 import time
 import zlib
@@ -174,7 +175,10 @@ class BleLink:
         """Ask Windows for a throughput-optimized link (short connection interval) while this board copies its SD runs,
         and hand it back after. The board asks for one itself, but Windows turns a board's request down (status 554)
         and keeps 45 ms with several boards linked: asked from the PC, a copy ran at 94 KB/s instead of 42 (bench
-        2026-11-20, three other boards streaming). Windows 11 only; elsewhere nothing changes."""
+        2026-11-20, three other boards streaming). Windows 11 only; elsewhere nothing changes (BlueZ accepts the
+        board's own connection-parameter request)."""
+        if sys.platform != "win32":
+            return
         try:
             if on and self._fast is None and self.client is not None:
                 from winrt.windows.devices.bluetooth import BluetoothLEPreferredConnectionParameters as PCP
@@ -704,6 +708,9 @@ class BoardGps:
 
 
 def windows_country() -> str | None:
+    if not sys.platform.startswith("win"):
+        from ..linux.system import country
+        return country()
     try:
         import ctypes
         buf = ctypes.create_unicode_buffer(16)

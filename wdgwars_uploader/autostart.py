@@ -1,5 +1,6 @@
 """Start with Windows via the per-user Run registry key
-(``HKCU\\...\\Run`` — no admin needed). Mid-session crash-restart is handled
+(``HKCU\\...\\Run`` — no admin needed); on Linux an XDG autostart entry or a
+systemd user service (:mod:`wdgwars_uploader.linux.autostart`). Mid-session crash-restart is handled
 separately by :mod:`wdgwars_uploader.watchdog`. All launches use ``--boot`` so
 the dashboard doesn't pop open at every logon.
 """
@@ -97,6 +98,7 @@ def remove_old_name() -> None:
     the Run value, the Startup shortcut and the local exe copy, so the old
     version can never start again."""
     if sys.platform != "win32":
+        _linux().remove_old_name()
         return
     import winreg
     try:
@@ -151,9 +153,14 @@ def _launch_command() -> str:
     return f'"{exe}" {args}'
 
 
+def _linux():
+    from .linux import autostart as la
+    return la
+
+
 def is_enabled() -> bool:
     if sys.platform != "win32":
-        return False
+        return _linux().is_enabled()
     import winreg
     try:
         with winreg.OpenKey(winreg.HKEY_CURRENT_USER, RUN_KEY, 0, winreg.KEY_READ) as k:
@@ -165,7 +172,7 @@ def is_enabled() -> bool:
 
 def enable() -> bool:
     if sys.platform != "win32":
-        return False
+        return _linux().enable()
     import winreg
     ok = False
     try:
@@ -181,6 +188,7 @@ def enable() -> bool:
 
 def disable() -> None:
     if sys.platform != "win32":
+        _linux().disable()
         return
     import winreg
     try:
