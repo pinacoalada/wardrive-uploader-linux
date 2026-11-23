@@ -148,6 +148,19 @@ if [[ -e /usr/lib/udev/rules.d/85-brltty.rules && ! -e /etc/udev/rules.d/85-brlt
   fi
 fi
 
+# GeoClue (Location Services): authorize this app by its desktop id, so it gets
+# a position without a desktop prompt (and headless, where there is no agent).
+GEOCONF=/etc/geoclue/geoclue.conf
+if [[ -f $GEOCONF ]] && ! grep -q '^\[wardrive-uploader\]' "$GEOCONF"; then
+  printf '\n# Wardrive Uploader (added by install.sh)\n[wardrive-uploader]\nallowed=true\nsystem=true\nusers=\n' \
+    | sudo tee -a "$GEOCONF" >/dev/null
+  sudo systemctl try-restart geoclue.service 2>/dev/null || true
+  note "GeoClue: Wardrive Uploader allowed to read location"
+fi
+command -v gsettings >/dev/null && [[ -n "${DBUS_SESSION_BUS_ADDRESS:-}" ]] \
+  && [[ "$(gsettings get org.gnome.system.location enabled 2>/dev/null)" == "false" ]] \
+  && warn "Location Services is off: Settings > Privacy & Security > Location (only needed if you use it as a GPS source)"
+
 # ------------------------------------------------------------- monitor mode ---
 if [[ $MONITOR == 1 ]]; then
   step "Wi-Fi monitor mode (capabilities on $PY_APP)"
