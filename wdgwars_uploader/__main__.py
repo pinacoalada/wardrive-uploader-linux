@@ -82,6 +82,13 @@ def main(argv: list[str] | None = None) -> int:
         # Serial ports open exclusively, as COM ports do on Windows.
         from .linux.system import exclusive_serial
         exclusive_serial()
+        if not (args.watchdog or args.detect):
+            # The earlier Debian port would keep port 8787 and the radios; stop it first.
+            try:
+                from .linux.autostart import retire_old_fork
+                retire_old_fork()
+            except Exception:  # noqa: BLE001
+                logging.getLogger("wdgwars").exception("could not stop the old Debian port")
 
     if args.watchdog:
         from .watchdog import run as watchdog_run

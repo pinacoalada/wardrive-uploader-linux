@@ -159,7 +159,36 @@ def disable() -> None:
 
 def remove_old_name() -> None:
     """The earlier Debian port registered its own user unit; it must not start too."""
-    _disable_unit(OLD_UNIT)
+    retire_old_fork()
+
+
+def retire_old_fork() -> None:
+    """Stop the earlier Debian port (JCrossTX/debian-wdgwars-uploader) for good.
+
+    It runs as the systemd user unit ``wdgwars-uploader.service`` with
+    ``Restart=on-failure``, holds the dashboard port 8787 and the radios, and
+    comes straight back when killed, so this copy would start on 8788 next to
+    it. Its unit is stopped and removed, and any copy of it started by hand
+    (a run_app.py that is not this checkout's) is ended.
+    """
+    f = _unit_file(OLD_UNIT)
+    r = _systemctl("is-active", "--quiet", OLD_UNIT)
+    if f.exists() or (r is not None and r.returncode == 0):
+        log.warning("stopping the old Debian port's service (%s)", OLD_UNIT)
+        _systemctl("disable", "--now", OLD_UNIT)
+        try:
+            f.unlink()
+        except OSError:
+            pass
+        _systemctl("daemon-reload")
+        _systemctl("reset-failed", OLD_UNIT)
+    from .system import app_instances, kill
+    ours = str(_script())
+    for pid, args in app_instances():
+        script = next((a for a in args if a.endswith("run_app.py")), "")
+        if script and os.path.realpath(script) != ours:
+            log.warning("ending another app copy (pid %s: %s)", pid, " ".join(args)[:160])
+            kill(pid)
 
 
 def supervised() -> bool:
