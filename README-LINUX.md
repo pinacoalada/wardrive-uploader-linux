@@ -23,7 +23,7 @@ What `install.sh` does (re-run it any time to repair or update an install):
 
 | Step | Why |
 |---|---|
-| apt: Python, PyGObject + AppIndicator, BlueZ, libusb, GeoClue, rtl-sdr, hackrf, a packaged ADS-B decoder (`dump1090-fa`, else `readsb`, else `dump1090-mutability`) | tray icon, Bluetooth, USB radios, location, aircraft |
+| apt: Python, PyGObject + AppIndicator, BlueZ, libusb, GeoClue, rtl-sdr, hackrf, a packaged ADS-B decoder (`dump1090-fa`, else `readsb`, else `dump1090-mutability`; on Ubuntu 24.04 install readsb with wiedehopf's script, FlightAware's repo has no noble release) | tray icon, Bluetooth, USB radios, location, aircraft |
 | `.venv` with `requirements.txt` | the app's Python packages (system site-packages for the tray and D-Bus) |
 | `/etc/udev/rules.d/70-wardrive-uploader.rules` | lets you open the RTL-SDR, HackRF and monitor-mode adapters, and keeps ModemManager from probing mesh/ESP32 boards. Generated from the app's own device tables. |
 | groups `dialout`, `plugdev` | serial ports and USB radios |

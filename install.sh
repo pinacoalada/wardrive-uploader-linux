@@ -51,7 +51,10 @@ USER_NAME="$(id -un)"
 if [[ $APT == 1 ]]; then
   command -v apt-get >/dev/null || { echo "apt-get not found: install the packages listed in README-LINUX.md yourself and use --no-apt" >&2; exit 1; }
   step "Installing system packages (sudo apt)"
-  sudo apt-get update -qq
+  if ! sudo apt-get update -qq; then
+    warn "apt-get update reported errors (often a third-party repo with no release for your Ubuntu version,"
+    warn "e.g. FlightAware's piaware repo on 24.04). Continuing with the sources that did update."
+  fi
   have() { [[ -n "$(apt-cache policy "$1" 2>/dev/null | awk '/Candidate:/ {print $2}' | grep -v '(none)')" ]]; }
   PKGS=(python3 python3-venv python3-pip python3-gi python3-dbus libusb-1.0-0 bluez
         libcap2-bin iw rfkill git xdg-utils)
@@ -73,8 +76,10 @@ if [[ $APT == 1 ]]; then
     note "ADS-B decoder: $DECODER"
   else
     warn "No ADS-B decoder in your apt sources. Aircraft need one of:"
-    note "  dump1090-fa: https://www.flightaware.com/adsb/piaware/install (add FlightAware's repo, then apt install dump1090-fa)"
-    note "  readsb:      https://github.com/wiedehopf/adsb-scripts/wiki/Automatic-installation-for-readsb"
+    note "  readsb (works on Ubuntu 24.04):"
+    note "    sudo bash -c \"\$(wget -O - https://github.com/wiedehopf/adsb-scripts/raw/master/readsb-install.sh)\""
+    note "  dump1090-fa: FlightAware's apt repo has no Ubuntu 24.04 release; build it from source instead"
+    note "    (https://github.com/flightaware/dump1090), or use readsb."
     note "Everything else works without it. Re-run ./install.sh afterwards."
   fi
 fi
