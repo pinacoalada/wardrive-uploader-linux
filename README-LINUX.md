@@ -10,7 +10,7 @@ Built and tested on Ubuntu 24.04 (Python 3.12). Any recent Debian-based distro s
 ## Install
 
 ```sh
-git clone <this repo> wardrive-uploader
+git clone https://github.com/pinacoalada/wardrive-uploader-linux wardrive-uploader
 cd wardrive-uploader
 ./install.sh                # add --monitor for Wi-Fi monitor mode, --headless for a Pi/server
 ```
